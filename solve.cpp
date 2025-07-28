@@ -251,7 +251,7 @@ Problem parse_problem(const json &data, const vector<Objective> &objs) {
 
 Problem get_default_problem(int prob_id) {
   json data;
-  ifstream ifs("data/Problem_" + to_string(prob_id) + ".json");
+  ifstream ifs("../data/Problem_" + to_string(prob_id) + ".json");
   ifs >> data;
   ifs.close();
 
