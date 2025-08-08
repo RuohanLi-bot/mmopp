@@ -28,7 +28,9 @@ using namespace nlohmann;
 #include "pareto/front.h"
 using namespace pareto;
 
-// #define PRINT_LOG
+// #include "pre.cpp"
+
+#define PRINT_LOG
 
 #define within(x, y, X, Y) ((x) >= (0) && (x) < (X) && (y) >= (0) && (y) < (Y))
 
@@ -486,6 +488,9 @@ template <size_t M = 0> struct SolverImpl : Solver {
     /*
      * Ideal Costs
      */
+#ifdef PRINT_LOG
+    auto ideal_costs_start = chrono::high_resolution_clock::now();
+#endif
     Matrix<Cost> ideal_to_keys(dim_n, vector<Cost>(dim_k, Cost(dim_c, 1e9)));
     for (int c = 0; c < dim_c; c++) {
       for (int k = 0; k < dim_k; k++) {
@@ -535,14 +540,31 @@ template <size_t M = 0> struct SolverImpl : Solver {
         }
       }
     }
+#ifdef PRINT_LOG
+    auto ideal_costs_end = chrono::high_resolution_clock::now();
+    cout << "\t" << "Ideal Costs ("
+         << chrono::duration<double>(ideal_costs_end - ideal_costs_start).count() * 1000
+         << " ms): " << dim_k << " Keys, " << dim_c << " Objectives" << endl;
+#endif
 
     /*
      * Herustic Function
      */
+#ifdef PRINT_LOG
+    auto heuristic_start = chrono::high_resolution_clock::now();
+    int heuristic_calls = 0;
+    int heuristic_cache_hits = 0;
+#endif
     auto heuristic = [&, heu_mem = vector<map<int, Cost>>(dim_n),
                       mst_mem = map<int, Cost>()](int node,
                                                   int status) mutable {
+#ifdef PRINT_LOG
+      heuristic_calls++;
+#endif
       if (auto it = heu_mem[node].find(status); it != heu_mem[node].end()) {
+#ifdef PRINT_LOG
+        heuristic_cache_hits++;
+#endif
         return it->second;
       }
 
@@ -656,6 +678,12 @@ template <size_t M = 0> struct SolverImpl : Solver {
 
       return heu_mem[node][status] = move(lb);
     };
+#ifdef PRINT_LOG
+    auto heuristic_end = chrono::high_resolution_clock::now();
+    cout << "\t" << "Heuristic Function ("
+         << chrono::duration<double>(heuristic_end - heuristic_start).count() * 1000
+         << " ms): " << heuristic_calls << " Calls, " << heuristic_cache_hits << " Cache Hits" << endl;
+#endif
 
     /*
      * Best-First Search
@@ -781,6 +809,8 @@ template <size_t M = 0> struct SolverImpl : Solver {
          << chrono::duration<double>(time_point_3 - time_point_2).count() * 1000
          << " ms): " << iteration << " Iterations" << endl;
 #endif
+
+
 
     /*
      * Path Construction
@@ -1042,7 +1072,7 @@ void run_instance(const string &file, const vector<string> &obj_vector) {
   /*
    * Result I
    */
-  ofstream table_first("results/Result I.txt");
+  ofstream table_first("../results1/Result I.txt");
   table_first << "The test Problem" << "\t";
   table_first << "The pareto optimal paths" << "\t";
   table_first << "The Objective values" << "\t";
@@ -1066,7 +1096,7 @@ void run_instance(const string &file, const vector<string> &obj_vector) {
    * Result II
    */
 
-  ofstream table("results/Result II.txt");
+  ofstream table("../results1/Result II.txt");
   int max_len = 0;
 
   int path_id = 0;
@@ -1102,20 +1132,161 @@ void run_instance(const string &file, const vector<string> &obj_vector) {
   /*
    * Result III
    */
-  ofstream table_last("results/Result III.txt");
-  table_last << "T0" << "\t";
-  table_last << "T/T0" << endl;
+   ofstream table_last("../results1/Result III.txt");
+   table_last << "T0" << "\t";
+   table_last << "T/T0" << endl;
+ 
+   table_last << t0 << "\t";
+   table_last << runtime / t0 << endl;
+ 
+   table_last.close();
 
-  table_last << t0 << "\t";
-  table_last << runtime / t0 << endl;
+  /*
+   * Result IV
+   */
+  {
+    ofstream table_set("../results1/Result IV.txt");
 
-  table_last.close();
+    int path_count_group = 0;
+    vector<pair<int, int>> group_ranges;
+    vector<vector<Coord>> group_point_sets;
+    int max_len_set = 0;
+
+    for (const auto &[cost, paths] : solution) {
+      int start_id = path_count_group + 1;
+      int end_id = path_count_group + static_cast<int>(paths.size());
+      group_ranges.emplace_back(start_id, end_id);
+
+      set<Coord> unique_points;
+      for (const Path &path : paths) {
+        for (const auto &p : path) {
+          unique_points.insert(p);
+        }
+      }
+
+      vector<Coord> points(unique_points.begin(), unique_points.end());
+      if (max_len_set < static_cast<int>(points.size())) {
+        max_len_set = static_cast<int>(points.size());
+      }
+      group_point_sets.push_back(move(points));
+
+      path_count_group += static_cast<int>(paths.size());
+    }
+
+    for (int g = 0; g < static_cast<int>(group_point_sets.size()); g++) {
+      table_set << (g == 0 ? "" : "\t");
+      table_set << "Path_" << group_ranges[g].first << "_" << group_ranges[g].second
+                << "(x)" << "\t";
+      table_set << "Path_" << group_ranges[g].first << "_" << group_ranges[g].second
+                << "(y)";
+    }
+    table_set << endl;
+
+    for (int i = 0; i < max_len_set; i++) {
+      for (int g = 0; g < static_cast<int>(group_point_sets.size()); g++) {
+        table_set << (g == 0 ? "" : "\t");
+        if (i < static_cast<int>(group_point_sets[g].size())) {
+          auto [x, y] = group_point_sets[g][i];
+          table_set << x + 1 << "\t" << y + 1;
+        } else {
+          table_set << 0 << "\t" << 0;
+        }
+      }
+      table_set << endl;
+    }
+
+    table_set.close();
+  }
+  /*
+   * Result V
+   */
+  {
+    ofstream table_f("../results1/Result V.txt");
+    
+    // 重新读取JSON数据以获取F数组
+    json data_f;
+    ifstream ifs_f(file);
+    ifs_f >> data_f;
+    ifs_f.close();
+    
+    // 构建F数组中的点映射
+    map<Coord, int> f_point_map;
+    if (data_f.contains("F")) {
+      auto F = data_f["F"].get<Matrix<double>>();
+      for (int i = 0; i < static_cast<int>(F.size()); i++) {
+        const vector<double> &row = F[i];
+        Coord point(lround(row[0]) - 1, lround(row[1]) - 1);
+        f_point_map[point] = i + 1; // 序号从1开始
+      }
+    }
+
+    int path_count_group_v = 0;
+    vector<pair<int, int>> group_ranges_v;
+    vector<vector<pair<int, Coord>>> group_f_points;
+
+    for (const auto &[cost, paths] : solution) {
+      int start_id = path_count_group_v + 1;
+      int end_id = path_count_group_v + static_cast<int>(paths.size());
+      group_ranges_v.emplace_back(start_id, end_id);
+
+      vector<pair<int, Coord>> f_points;
+      for (const Path &path : paths) {
+        for (const auto &p : path) {
+          if (auto it = f_point_map.find(p); it != f_point_map.end()) {
+            f_points.emplace_back(it->second, p);
+          }
+        }
+      }
+      
+      // 去重并排序
+      sort(f_points.begin(), f_points.end());
+      f_points.erase(unique(f_points.begin(), f_points.end()), f_points.end());
+      
+      group_f_points.push_back(move(f_points));
+      path_count_group_v += static_cast<int>(paths.size());
+    }
+
+    // 输出表头
+    for (int g = 0; g < static_cast<int>(group_f_points.size()); g++) {
+      table_f << (g == 0 ? "" : "\t");
+      table_f << "Path_" << group_ranges_v[g].first << "_" << group_ranges_v[g].second;
+    }
+    table_f << endl;
+
+    // 找到最大长度
+    int max_f_points = 0;
+    for (const auto &f_points : group_f_points) {
+      if (max_f_points < static_cast<int>(f_points.size())) {
+        max_f_points = static_cast<int>(f_points.size());
+      }
+    }
+
+    // 输出点信息
+    for (int i = 0; i < max_f_points; i++) {
+      for (int g = 0; g < static_cast<int>(group_f_points.size()); g++) {
+        table_f << (g == 0 ? "" : "\t");
+        if (i < static_cast<int>(group_f_points[g].size())) {
+          auto [point_id, coord] = group_f_points[g][i];
+          auto [x, y] = coord;
+          table_f << "Point " << point_id << ":(" << x + 1 << ", " << y + 1 << ")";
+        }
+        // 如果当前组没有这个索引的点，输出空字符串保持对齐
+        else {
+          table_f << "Point 0:(0, 0)";
+        }
+      }
+      table_f << endl;
+    }
+
+    table_f.close();
+  }
 }
 
 int main(int argc, char **argv) {
   if (argc == 1) {
     run_benchmark();
   } else {
+    // preprocess();
     run_instance(argv[1], vector<string>(argv + 2, argv + argc));
   }
   return 0;
