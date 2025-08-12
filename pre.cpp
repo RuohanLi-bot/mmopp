@@ -1,38 +1,33 @@
 #include <vector>
-#include <utility> // for pair
-#include <algorithm> // for minmax_element, remove
-#include <cmath>     // for floor, ceil
-#include <limits>    // for numeric_limits
+#include <utility>
+#include <algorithm>
+#include <cmath>
+#include <limits>
 #include <iostream>
-#include <iomanip> // for setprecision
-#include <fstream>  // for ifstream, ofstream
-#include <sstream>  // for stringstream
-#include <random>   // for random number generation
-#include <queue>    // for priority_queue
-#include <climits>  // for INT_MAX
-#include <regex>    // for regex
-#include <set>      // for set
+#include <iomanip>
+#include <fstream>
+#include <sstream>
+#include <random>
+#include <queue>
+#include <climits>
+#include <regex>
+#include <set>
 
 #define INPUT_FILE "data1/sz.csv"
-#define OUTPUT_FILE "data1/newprobsz1.json"
+#define OUTPUT_FILE "data1/newprobsz4.json"
 #define PROCESS_FILE "data1/terminal_output.txt"
 // 宏定义：最大网格尺寸
 #define MAX_GRID_SIZE 50
 // 宏定义：必经点数量
-#define YELLOW_AREAS_COUNT 2
+#define YELLOW_AREAS_COUNT 3
 
 //problem中：map[x][y] ~ F[y-1][x-1]
 
 // 宏定义：搜索空间限制策略
-// 0: 不限制（所有点都可通行，但搜索时间很长）
-// 1: 简单限制（只保留相邻必经点之间的L形路径）
-// 2: 智能限制（先创建L形网络，再用A*优化所有必经点间的路径，推荐）
-#define SEARCH_SPACE_STRATEGY 2
-
-// 宏定义：是否输出F数组
-// 0: 不输出F数组
-// 1: 输出F数组（默认）
-#define OUTPUT_F_ARRAY 1
+// 1: 连通性距离限制（为每个点保留与空间中最接近它且不连通的N个点之间的路径）
+#define NEAREST_NEIGHBORS_COUNT 5
+// 2: 智能限制（为所有必经点间的路径间创建L形网络）
+#define SEARCH_SPACE_STRATEGY 1
 
 using namespace std;
 
@@ -41,7 +36,6 @@ using LatLon = pair<double, double>;
 // 定义网格坐标类型
 using GridCoord = pair<int, int>;
 
-// 定义景点信息结构
 struct SpotInfo {
     LatLon coord;
     double price;
@@ -50,7 +44,6 @@ struct SpotInfo {
 
 // 解析坐标字符串 [lat, lon]
 LatLon parseCoordinate(const string& coord_str) {
-    // 移除方括号和空格
     string cleaned = coord_str;
     cleaned.erase(remove(cleaned.begin(), cleaned.end(), '['), cleaned.end());
     cleaned.erase(remove(cleaned.begin(), cleaned.end(), ']'), cleaned.end());
@@ -73,7 +66,6 @@ LatLon parseCoordinate(const string& coord_str) {
     return {0.0, 0.0};
 }
 
-// 解析数值字符串，如果为空则返回默认值
 double parseDouble(const string& str, double default_value = 0.0) {
     if (str.empty() || str == "TRUE" || str == "FALSE") {
         return default_value;
@@ -85,7 +77,6 @@ double parseDouble(const string& str, double default_value = 0.0) {
     }
 }
 
-// 读取CSV文件并解析景点信息
 vector<SpotInfo> readSpotsFromCSV(const string& filename) {
     vector<SpotInfo> spots;
     ifstream file(filename);
@@ -96,7 +87,6 @@ vector<SpotInfo> readSpotsFromCSV(const string& filename) {
     }
     
     string line;
-    // 跳过标题行
     getline(file, line);
     
     while (getline(file, line)) {
@@ -104,30 +94,19 @@ vector<SpotInfo> readSpotsFromCSV(const string& filename) {
         string cell;
         vector<string> cells;
         
-        // 按制表符分割
         while (getline(ss, cell, '\t')) {
             cells.push_back(cell);
         }
         
         if (cells.size() >= 16) {
             SpotInfo spot;
-            
-            // 解析坐标（第4列）
             spot.coord = parseCoordinate(cells[3]);
-            
-            // 解析价格（第12列）
             spot.price = parseDouble(cells[11], 0);
-            
-            // 解析建议游玩时长（第16列）
             spot.duration = parseDouble(cells[15], 0);
-            
-            // 只添加有效坐标的景点
-            if (spot.coord.first != 0.0 || spot.coord.second != 0.0) {
+            if (spot.coord.first != 0.0 || spot.coord.second != 0.0) 
                 spots.push_back(spot);
-            }
         }
     }
-    
     return spots;
 }
 
@@ -137,13 +116,11 @@ vector<GridCoord> findShortestPath(const GridCoord& start, const GridCoord& goal
     int grid_width = map[0].size();
     int grid_height = map.size();
     
-    // 转换为网格坐标
     int start_x = start.first - min_x;
     int start_y = start.second - min_y;
     int goal_x = goal.first - min_x;
     int goal_y = goal.second - min_y;
     
-    // 检查边界
     if (start_x < 0 || start_x >= grid_width || start_y < 0 || start_y >= grid_height ||
         goal_x < 0 || goal_x >= grid_width || goal_y < 0 || goal_y >= grid_height) {
         cout << "Warning: Points out of bounds - start(" << start_x << "," << start_y 
@@ -151,19 +128,16 @@ vector<GridCoord> findShortestPath(const GridCoord& start, const GridCoord& goal
         return {};
     }
     
-    // 如果起点或终点不可通行，返回空路径
     if (map[start_y][start_x] == 1 || map[goal_y][goal_x] == 1) {
         cout << "Warning: Start or goal point is impassable - start(" << start_x << "," << start_y 
              << ") goal(" << goal_x << "," << goal_y << ")" << endl;
         return {};
     }
     
-    // 如果起点和终点相同，直接返回
     if (start_x == goal_x && start_y == goal_y) {
         return {start};
     }
     
-    // 使用优先队列进行A*搜索
     priority_queue<pair<int, GridCoord>, vector<pair<int, GridCoord>>, 
                    greater<pair<int, GridCoord>>> pq;
     vector<vector<int>> g_score(grid_height, vector<int>(grid_width, INT_MAX));
@@ -185,7 +159,6 @@ vector<GridCoord> findShortestPath(const GridCoord& start, const GridCoord& goal
         int current_y = current.second;
         
         if (current_x == goal_x && current_y == goal_y) {
-            // 重建路径
             vector<GridCoord> path;
             while (current_x != start_x || current_y != start_y) {
                 path.push_back({current_x + min_x, current_y + min_y});
@@ -221,14 +194,12 @@ vector<GridCoord> findShortestPath(const GridCoord& start, const GridCoord& goal
     
     cout << "Warning: No path found between (" << start_x << "," << start_y 
          << ") and (" << goal_x << "," << goal_y << ")" << endl;
-    return {}; // 没有找到路径
+    return {};
 }
 
-// 将经纬度坐标映射到二维网格坐标
 vector<GridCoord> mapLatLonToGrid(const vector<LatLon>& coordinates, int padding = 1) {
     if (coordinates.empty()) return {};
 
-    // 确定边界
     auto lat_minmax = std::minmax_element(coordinates.begin(), coordinates.end(),
                                     [](const LatLon& a, const LatLon& b) { return a.first < b.first; });
     auto lon_minmax = std::minmax_element(coordinates.begin(), coordinates.end(),
@@ -239,33 +210,29 @@ vector<GridCoord> mapLatLonToGrid(const vector<LatLon>& coordinates, int padding
     double min_lon = lon_minmax.first->second;
     double max_lon = lon_minmax.second->second;
 
-    // 计算范围
     double lat_span = max_lat - min_lat;
     double lon_span = max_lon - min_lon;
 
-    // 处理所有点重合的极端情况
     if (lat_span == 0 && lon_span == 0) {
         return vector<GridCoord>(coordinates.size(), GridCoord(padding, padding));
     }
 
-    // 确定网格尺寸 - 限制最大尺寸以避免过大的网格
     int grid_height, grid_width;
 
     if (lat_span > 0) {
-        grid_height = static_cast<int>(ceil(lat_span / (1e-4))) + 2 * padding;  // 从1e-5改为1e-4
+        grid_height = static_cast<int>(ceil(lat_span / (1e-4))) + 2 * padding;
         grid_height = std::min(grid_height, MAX_GRID_SIZE);
     } else {
         grid_height = 2 * padding + 1;
     }
 
     if (lon_span > 0) {
-        grid_width = static_cast<int>(ceil(lon_span / (1e-4))) + 2 * padding;  // 从1e-5改为1e-4
+        grid_width = static_cast<int>(ceil(lon_span / (1e-4))) + 2 * padding;
         grid_width = std::min(grid_width, MAX_GRID_SIZE);
     } else {
         grid_width = 2 * padding + 1;
     }
 
-    // 映射每个坐标
     vector<GridCoord> grid_coords;
     grid_coords.reserve(coordinates.size());
 
@@ -286,14 +253,12 @@ vector<GridCoord> mapLatLonToGrid(const vector<LatLon>& coordinates, int padding
     return grid_coords;
 }
 
-// 生成问题JSON文件
 void generateProblemJson(const vector<SpotInfo>& spots, const vector<GridCoord>& grid_points, ofstream& output_file) {
     if (grid_points.empty()) {
         cerr << "Error: grid_points is empty!" << endl;
         return;
     }
 
-    // 确定网格边界
     auto x_minmax = std::minmax_element(grid_points.begin(), grid_points.end(),
                                    [](const GridCoord& a, const GridCoord& b) { return a.first < b.first; });
     auto y_minmax = std::minmax_element(grid_points.begin(), grid_points.end(),
@@ -307,36 +272,28 @@ void generateProblemJson(const vector<SpotInfo>& spots, const vector<GridCoord>&
     int grid_width = max_x - min_x + 1;
     int grid_height = max_y - min_y + 1;
 
-    // 创建Map矩阵
-    vector<vector<int>> map(grid_height, vector<int>(grid_width, 0));
+    vector<vector<int>> map(grid_height, vector<int>(grid_width, 1));
 
-    // 获取起点和终点坐标（转换为1-based索引）
     GridCoord start_point = grid_points.front();
-    GridCoord goal_point = grid_points.back();
+    GridCoord goal_point = grid_points.front();
 
     int start_x = start_point.first - min_x + 1;
     int start_y = start_point.second - min_y + 1;
     int goal_x = goal_point.first - min_x + 1;
     int goal_y = goal_point.second - min_y + 1;
 
-    // 随机选择必经点
     vector<vector<int>> yellow_areas;
     vector<GridCoord> selected_points;
-    if (grid_points.size() > 2) { // 确保有足够的点可以选择
-        // 创建随机数生成器
+    if (grid_points.size() > 2) {
         random_device rd;
         mt19937 gen(rd());
         
-        // 排除起点和终点，从剩余点中随机选择
         vector<GridCoord> available_points;
-        for (size_t i = 1; i < grid_points.size() - 1; ++i) {
+        for (size_t i = 1; i < grid_points.size() - 1; ++i) 
             available_points.push_back(grid_points[i]);
-        }
         
-        // 随机打乱可用点
         shuffle(available_points.begin(), available_points.end(), gen);
         
-        // 选择指定数量的必经点
         int points_to_select = min(YELLOW_AREAS_COUNT, static_cast<int>(available_points.size()));
         for (int i = 0; i < points_to_select; ++i) {
             selected_points.push_back(available_points[i]);
@@ -345,72 +302,110 @@ void generateProblemJson(const vector<SpotInfo>& spots, const vector<GridCoord>&
             yellow_areas.push_back({x, y});
         }
     }
-
-    // 根据策略限制搜索空间
-    if (SEARCH_SPACE_STRATEGY > 0) {
-        // 将所有点设为不可通行（1）
-        for (int i = 0; i < grid_height; ++i) {
-            for (int j = 0; j < grid_width; ++j) {
-                map[i][j] = 1;
-            }
-        }
-        
-        // 只保留起点、终点和必经点为可通行（0）
-        map[start_y - 1][start_x - 1] = 0;  // 起点
-        map[goal_y - 1][goal_x - 1] = 0;    // 终点
-        
-        // 必经点设为可通行
-        for (const auto& point : selected_points) {
-            int x = point.first - min_x + 1;
-            int y = point.second - min_y + 1;
-            map[y - 1][x - 1] = 0;
-        }
-        
-        // F中的所有点设为可通行
-        for (const auto& grid_point : grid_points) {
-            int x = grid_point.first - min_x + 1;
-            int y = grid_point.second - min_y + 1;
-            map[y - 1][x - 1] = 0;
-        }
-        
-        // 添加连接路径
-        vector<GridCoord> all_points = {start_point};
-        all_points.insert(all_points.end(), selected_points.begin(), selected_points.end());
-        all_points.push_back(goal_point);
-        
-        // 加入F中的所有点
-        for (const auto& grid_point : grid_points) {
-            // 避免重复添加起点和终点
-            if (grid_point != start_point && grid_point != goal_point) {
-                // 避免重复添加必经点
-                bool is_yellow_point = false;
-                for (const auto& yellow_point : selected_points) {
-                    if (grid_point == yellow_point) {
-                        is_yellow_point = true;
-                        break;
-                    }
+    map[start_y - 1][start_x - 1] = 0;
+    map[goal_y - 1][goal_x - 1] = 0;
+    for (const auto& grid_point : grid_points) {
+        int x = grid_point.first - min_x + 1;
+        int y = grid_point.second - min_y + 1;
+        map[y - 1][x - 1] = 0;
+    }
+    if (SEARCH_SPACE_STRATEGY == 1) {
+        // 策略1: 为每个点保留与空间中最接近它且不连通的N个点之间的路径
+        for (size_t i = 0; i < grid_points.size(); ++i) {
+            GridCoord current_point = grid_points[i];
+            vector<pair<double, size_t>> distances;
+            
+            // 计算当前点到所有其他点的距离
+            for (size_t j = 0; j < grid_points.size(); ++j) 
+                if (i != j) {
+                    GridCoord other_point = grid_points[j];
+                    double distance = sqrt(pow(current_point.first - other_point.first, 2) + 
+                                        pow(current_point.second - other_point.second, 2));
+                    distances.emplace_back(distance, j);
                 }
-                if (!is_yellow_point) {
-                    all_points.push_back(grid_point);
-                }
-            }
-        }
-        
-        if (SEARCH_SPACE_STRATEGY == 1) {
-            // 策略1: 简单的L形路径连接（只连接相邻点）
-            for (size_t i = 0; i < all_points.size() - 1; ++i) {
-                GridCoord p1 = all_points[i];
-                GridCoord p2 = all_points[i + 1];
+            
+            // 按距离排序
+            sort(distances.begin(), distances.end());
+            
+            // 检查连通性并选择不连通的最近N个点
+            int points_connected = 0;
+            for (const auto& [distance, target_idx] : distances) {
+                if (points_connected >= NEAREST_NEIGHBORS_COUNT) break;
+                
+                GridCoord target_point = grid_points[target_idx];
+                
+                // 检查两点是否已经连通（通过检查路径上的点）
+                bool is_connected = false;
                 
                 // 转换为网格坐标
+                int x1 = current_point.first - min_x + 1;
+                int y1 = current_point.second - min_y + 1;
+                int x2 = target_point.first - min_x + 1;
+                int y2 = target_point.second - min_y + 1;
+                
+                // 检查L形路径上的点是否已经可通行
+                if (x1 != x2) {
+                    int step = (x2 > x1) ? 1 : -1;
+                    for (int x = x1; x != x2; x += step) 
+                        if (x >= 1 && x <= grid_width && y1 >= 1 && y1 <= grid_height) 
+                            if (map[y1 - 1][x - 1] == 1) {
+                                is_connected = false;
+                                break;
+                            }
+                        // 检查垂直段
+                        if (is_connected && y1 != y2) {
+                            int step_y = (y2 > y1) ? 1 : -1;
+                            for (int y = y1; y != y2; y += step_y) 
+                                if (x2 >= 1 && x2 <= grid_width && y >= 1 && y <= grid_height) 
+                                    if (map[y - 1][x2 - 1] == 1) {
+                                        is_connected = false;
+                                        break;
+                                    }
+                        }
+                } else if (y1 != y2) {
+                    // 只有垂直移动
+                    int step = (y2 > y1) ? 1 : -1;
+                    for (int y = y1; y != y2; y += step) 
+                        if (x1 >= 1 && x1 <= grid_width && y >= 1 && y <= grid_height) 
+                            if (map[y - 1][x1 - 1] == 1) {
+                                is_connected = false;
+                                break;
+                            }
+                }
+                
+                // 如果两点不连通，则创建连接路径
+                if (!is_connected) {
+                    // 创建L形路径连接
+                    if (x1 != x2) {
+                        int step = (x2 > x1) ? 1 : -1;
+                        for (int x = x1; x != x2; x += step) 
+                            if (x >= 1 && x <= grid_width && y1 >= 1 && y1 <= grid_height) 
+                                map[y1 - 1][x - 1] = 0;
+                    }
+                    if (y1 != y2) {
+                        int step = (y2 > y1) ? 1 : -1;
+                        for (int y = y1; y != y2; y += step) 
+                            if (x2 >= 1 && x2 <= grid_width && y >= 1 && y <= grid_height) 
+                                map[y - 1][x2 - 1] = 0;
+                    }
+                    points_connected++;
+                }
+            }
+        }
+    } else if (SEARCH_SPACE_STRATEGY == 2) {
+        output_file << "Creating paths between all " << grid_points.size() << " points..." << endl;
+        
+        for (size_t i = 0; i < grid_points.size(); ++i) {
+            for (size_t j = i + 1; j < grid_points.size(); ++j) {
+                GridCoord p1 = grid_points[i];
+                GridCoord p2 = grid_points[j];
+                
                 int x1 = p1.first - min_x + 1;
                 int y1 = p1.second - min_y + 1;
                 int x2 = p2.first - min_x + 1;
                 int y2 = p2.second - min_y + 1;
                 
-                // 创建简单的连接路径（L形路径）
                 if (x1 != x2) {
-                    // 水平移动
                     int step = (x2 > x1) ? 1 : -1;
                     for (int x = x1; x != x2; x += step) {
                         if (x >= 1 && x <= grid_width && y1 >= 1 && y1 <= grid_height) {
@@ -419,7 +414,6 @@ void generateProblemJson(const vector<SpotInfo>& spots, const vector<GridCoord>&
                     }
                 }
                 if (y1 != y2) {
-                    // 垂直移动
                     int step = (y2 > y1) ? 1 : -1;
                     for (int y = y1; y != y2; y += step) {
                         if (x2 >= 1 && x2 <= grid_width && y >= 1 && y <= grid_height) {
@@ -428,87 +422,16 @@ void generateProblemJson(const vector<SpotInfo>& spots, const vector<GridCoord>&
                     }
                 }
             }
-        } else if (SEARCH_SPACE_STRATEGY == 2) {
-            // 策略2: 连接所有必经点之间的路径（推荐）
-            output_file << "Creating A* paths between all " << all_points.size() << " points..." << endl;
-            
-            // 首先创建一个基本的连接网络，让所有必经点都可以互相到达
-            // 使用简单的直线连接作为初始网络
-            for (size_t i = 0; i < all_points.size(); ++i) {
-                for (size_t j = i + 1; j < all_points.size(); ++j) {
-                    GridCoord p1 = all_points[i];
-                    GridCoord p2 = all_points[j];
-                    
-                    // 创建简单的直线连接作为初始路径
-                    int x1 = p1.first - min_x + 1;
-                    int y1 = p1.second - min_y + 1;
-                    int x2 = p2.first - min_x + 1;
-                    int y2 = p2.second - min_y + 1;
-                    
-                    // 创建L形路径作为初始连接
-                    if (x1 != x2) {
-                        int step = (x2 > x1) ? 1 : -1;
-                        for (int x = x1; x != x2; x += step) {
-                            if (x >= 1 && x <= grid_width && y1 >= 1 && y1 <= grid_height) {
-                                map[y1 - 1][x - 1] = 0;
-                            }
-                        }
-                    }
-                    if (y1 != y2) {
-                        int step = (y2 > y1) ? 1 : -1;
-                        for (int y = y1; y != y2; y += step) {
-                            if (x2 >= 1 && x2 <= grid_width && y >= 1 && y <= grid_height) {
-                                map[y - 1][x2 - 1] = 0;
-                            }
-                        }
-                    }
-                }
-            }
-            
-            output_file << "Initial network created. Now optimizing with A*..." << endl;
-            
-            // 现在使用A*算法优化所有必经点之间的路径
-            for (size_t i = 0; i < all_points.size(); ++i) {
-                for (size_t j = i + 1; j < all_points.size(); ++j) {
-                    GridCoord p1 = all_points[i];
-                    GridCoord p2 = all_points[j];
-                    
-                    output_file << "Optimizing path from (" << p1.first << "," << p1.second 
-                         << ") to (" << p2.first << "," << p2.second << ")..." << endl;
-                    
-                    // 使用A*算法找到最短路径
-                    vector<GridCoord> path = findShortestPath(p1, p2, map, min_x, min_y);
-                    
-                    if (!path.empty()) {
-                        output_file << "A* path found with " << path.size() << " points" << endl;
-                        
-                        // 将路径上的所有点设为可通行
-                        for (const auto& path_point : path) {
-                            int x = path_point.first - min_x + 1;
-                            int y = path_point.second - min_y + 1;
-                            if (x >= 1 && x <= grid_width && y >= 1 && y <= grid_height) {
-                                map[y - 1][x - 1] = 0;
-                            }
-                        }
-                    } else {
-                        output_file << "Warning: A* failed, keeping initial L-shaped path" << endl;
-                    }
-                }
-            }
         }
     }
 
-    // 写入JSON文件
     ofstream json_file(OUTPUT_FILE);
     if (!json_file.is_open()) {
         cerr << "Error: Cannot create " << OUTPUT_FILE << " file!" << endl;
         return;
     }
-
     json_file << "{\n";
     json_file << "  \"Map\": [\n";
-    
-    // 写入Map矩阵
     for (size_t i = 0; i < map.size(); ++i) {
         json_file << "    [";
         for (size_t j = 0; j < map[i].size(); ++j) {
@@ -526,7 +449,6 @@ void generateProblemJson(const vector<SpotInfo>& spots, const vector<GridCoord>&
     json_file << "  \"GOAL_x\": " << goal_x << ",\n";
     json_file << "  \"GOAL_y\": " << goal_y << ",\n";
     
-    // 写入Yellow_areas
     json_file << "  \"Yellow_areas\": [\n";
     for (size_t i = 0; i < yellow_areas.size(); ++i) {
         json_file << "    [" << yellow_areas[i][0] << ", " << yellow_areas[i][1] << "]";
@@ -534,9 +456,7 @@ void generateProblemJson(const vector<SpotInfo>& spots, const vector<GridCoord>&
         json_file << "\n";
     }
     json_file << "  ],\n";
-    
-#if OUTPUT_F_ARRAY
-    // 写入F字段
+
     json_file << "  \"F\": [";
     set<pair<int, int>> f_points;
     bool first = true;
@@ -548,11 +468,7 @@ void generateProblemJson(const vector<SpotInfo>& spots, const vector<GridCoord>&
         json_file << "[" << x << ", " << y << ", " << spots[i].price << ", " << spots[i].duration << "]";
         first = false;
     }
-    json_file << "]\n";
-#endif
-    
-    json_file << "}";
-    
+    json_file << "]\n" << "}";
     json_file.close();
     
     output_file << "Generated " << OUTPUT_FILE << " with:" << endl;
@@ -561,25 +477,20 @@ void generateProblemJson(const vector<SpotInfo>& spots, const vector<GridCoord>&
     output_file << "  Goal point: (" << goal_x << ", " << goal_y << ")" << endl;
     output_file << "  Total spots: " << spots.size() << endl;
     output_file << "  Yellow areas (must-visit points): " << yellow_areas.size() << endl;
-    for (size_t i = 0; i < yellow_areas.size(); ++i) {
+    for (size_t i = 0; i < yellow_areas.size(); ++i) 
         output_file << "    Point " << (i + 1) << ": (" << yellow_areas[i][0] << ", " << yellow_areas[i][1] << ")" << endl;
-    }
 
     switch (SEARCH_SPACE_STRATEGY) {
-        case 0:
-            output_file << "  Search space: All points are passable (may be slow)" << endl;
-            break;
         case 1:
-            output_file << "  Search space: L-shaped paths between must-visit points" << endl;
+            output_file << "  Search space: L-shaped paths to " << NEAREST_NEIGHBORS_COUNT << " nearest points for each location" << endl;
             break;
         case 2:
-            output_file << "  Search space: All paths between must-visit points (recommended)" << endl;
+            output_file << "  Search space: All paths between must-visit points" << endl;
             break;
     }
 }
 
 void preprocess() {
-    // 读取景点信息
     vector<SpotInfo> spots = readSpotsFromCSV(INPUT_FILE);
     
     if (spots.empty()) {
@@ -587,13 +498,10 @@ void preprocess() {
         return;
     }
 
-    // 提取坐标
     vector<LatLon> locations;
-    for (const auto& spot : spots) {
+    for (const auto& spot : spots) 
         locations.push_back(spot.coord);
-    }
 
-    // 计算原始坐标的统计信息
     auto lat_minmax = std::minmax_element(locations.begin(), locations.end(),
                                     [](const LatLon& a, const LatLon& b) { return a.first < b.first; });
     auto lon_minmax = std::minmax_element(locations.begin(), locations.end(),
@@ -601,7 +509,6 @@ void preprocess() {
 
     auto grid_points = mapLatLonToGrid(locations, 1);
     
-    // 输出映射后的点集到文件
     ofstream points_file(PROCESS_FILE);
     if (!points_file.is_open()) {
         cerr << "Error: Cannot create " << PROCESS_FILE << " file!" << endl;
@@ -609,31 +516,23 @@ void preprocess() {
     }
     
     points_file << fixed << setprecision(6);
-    
-    // 输出原始坐标信息到文件
     points_file << "Original Lat/Lon coordinates from " << INPUT_FILE << ":\n";
     for (size_t i = 0; i < locations.size(); ++i) {
         points_file << "Point " << (i + 1) << ": ["
              << locations[i].first << ", " << locations[i].second << "]\n";
     }
-    
     points_file << "\nMapped Grid coordinates (x, y):\n";
-    for (size_t i = 0; i < grid_points.size(); ++i) {
+    for (size_t i = 0; i < grid_points.size(); ++i) 
         points_file << "Point " << (i + 1) << ": ("
              << grid_points[i].first << ", " << grid_points[i].second << ")\n";
-    }
 
-    // 输出景点信息
     points_file << "\nSpot information:\n";
     for (size_t i = 0; i < spots.size(); ++i) {
         points_file << "Spot " << (i + 1) << ":\n";
         points_file << "  Price: " << spots[i].price << "\n";
         points_file << "  Duration: " << spots[i].duration << "\n";
     }
-
-    // 生成问题JSON文件
     generateProblemJson(spots, grid_points, points_file);
-    
     points_file.close();
 }
 
